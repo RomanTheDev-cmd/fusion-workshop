@@ -1,0 +1,55 @@
+const progress=window.nativeProgress||{lessons:{}};progress.lessons||={};
+const saveProgress=()=>window.webkit?.messageHandlers?.saveProgress?.postMessage(progress);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const para=s=>s.split('\n').filter(Boolean).map(x=>`<p>${esc(x)}</p>`).join('');
+if(!location.hash&&progress.lastLesson)history.replaceState(null,'','#lesson-'+progress.lastLesson);
+function render(){
+ const id=Number(location.hash.replace('#lesson-',''))||1,l=COURSE.find(x=>x.id===id)||COURSE[0];
+ progress.lastLesson=l.id;const state=progress.lessons[l.id]||={checks:{},answers:{},notes:'',completed:false};
+ document.title=l.title+' · Мастерская Fusion';
+ const pages=[];const add=(title,body)=>pages.push({title,body});
+ const textPages=(title,text)=>{
+  const parts=text.split('\n').filter(Boolean);let block='';
+  parts.forEach(p=>{if(block&&block.length+p.length>480){add(title,para(block));block='';}block+=(block?'\n':'')+p;});if(block)add(title,para(block));
+ };
+ add('Начнём',para(l.goal)+`<h3>В результате</h3>`+para(l.result));
+ textPages('Перед началом',l.prereq);
+ if(l.id===1)textPages('Подготовьте Fusion','Откройте Fusion рядом с уроком. Выберите Design и миллиметры. Если программа предлагает тип документа, выберите Hybrid.\nЕсли не находите команду, нажмите S и введите её английское название. Модель вы проверяете сами: приложение не видит файл Fusion.');
+ textPages(l.exam?'Ваше задание':'Что полезно знать',l.concepts);
+ textPages('Подумайте',l.questions);textPages('Что будем делать',l.brief);
+ if(l.diagram)add('Размеры детали',l.diagram);
+ const solutionPages=[];
+ const solutionText=(title,text)=>{let block='';text.split('\n').filter(Boolean).forEach(p=>{if(block&&block.length+p.length>480){solutionPages.push({title,body:para(block)});block='';}block+=(block?'\n':'')+p;});if(block)solutionPages.push({title,body:para(block)});};
+ solutionText('Почему строим так',l.reason);
+ l.steps.forEach((s,i)=>solutionText(`Построение · шаг ${i+1} из ${l.steps.length}`,s));
+ if(l.exam||l.module>=2){
+  add('Если нужна помощь','<p>Сначала попробуйте сами. Подсказки и решение можно открыть отдельно.</p><div class="help-buttons"><button data-help="hint1">Первая подсказка</button><button data-help="hint2">Ещё подсказка</button><button data-help="partial">Частичное решение</button><button data-help="solution">Полное решение</button></div>');
+ }else pages.push(...solutionPages);
+ textPages('Практика в Fusion',l.practice);textPages('Теперь самостоятельно',l.independent);
+ l.checks.forEach((x,i)=>add(`Проверка результата · ${i+1} из ${l.checks.length}`,`<p>Проверьте в Fusion или на напечатанной детали.</p><div class="checks"><label><input type="checkbox" data-check="${i}" ${state.checks[i]?'checked':''}><span>${esc(x)}</span></label></div>`));
+ l.errors.forEach(x=>textPages(x[0],x[1]));
+ l.quiz.forEach((q,i)=>add(`Вопрос ${i+1} из ${l.quiz.length}`,`<div class="quiz" data-q="${i}"><h3>${esc(q.q)}</h3>${q.options.map((o,j)=>`<button data-answer="${j}">${esc(o)}</button>`).join('')}<div class="feedback" aria-live="polite"></div></div>`));
+ textPages('Задача со звёздочкой',l.hard);textPages('Главное из урока',l.summary);textPages('Когда повторить',l.repeat);
+ add('Ваши заметки',`<label for="notes">Что получилось и что стоит изменить?</label><textarea id="notes" rows="4">${esc(state.notes)}</textarea><p id="save-status" role="status">Сохраняется на этом Mac</p>`);
+ add('Урок завершён',`<p>Отметьте прохождение, если выполнили практику и проверили результат.</p><div class="checks"><label><input type="checkbox" id="complete" ${state.completed?'checked':''}><span>Я прошёл этот урок</span></label></div><button class="reset-quiz" id="reset-quiz">Сбросить ответы теста</button>`);
+ document.querySelector('#content').innerHTML=`<div class="reader-top"><button id="lessons-open">☰ Уроки</button><span>Урок ${l.id} из ${COURSE.length} · ${esc(l.title)}</span><button id="tools-open">Команды</button></div><div class="reader-body">${pages.map((p,i)=>`<article class="reader-page" data-page="${i}" hidden><h1>${p.title}</h1>${p.body}</article>`).join('')}</div><div class="reader-bottom"><button id="page-back">Назад</button><span id="page-count" aria-live="polite"></span><button id="page-next">Далее →</button></div><dialog id="lessons-dialog"><div class="dialog-top"><h2>Все уроки</h2><button id="lessons-close" aria-label="Закрыть список уроков">Закрыть</button></div><nav>${MODULES.map((m,i)=>`<h3>${esc(m)}</h3>${COURSE.filter(x=>x.module===i).map(x=>`<a class="lesson-choice ${x.id===l.id?'selected':''}" href="#lesson-${x.id}">${progress.lessons[x.id]?.completed?'✓':x.id}. ${esc(x.title)}</a>`).join('')}`).join('')}</nav></dialog><dialog id="help-dialog"><div class="dialog-top"><h2 id="help-title"></h2><button id="help-close">Закрыть</button></div><div id="help-body"></div><div class="help-nav"><button id="help-back">Назад</button><span id="help-count"></span><button id="help-next">Далее →</button></div></dialog>`;
+ let page=Math.max(0,Math.min(pages.length-1,Number.isInteger(state.page)?state.page:0));
+ const showPage=()=>{document.querySelectorAll('[data-page]').forEach(el=>el.hidden=Number(el.dataset.page)!==page);document.querySelector('#page-count').textContent=`${page+1} / ${pages.length}`;document.querySelector('#page-back').disabled=page===0;document.querySelector('#page-next').textContent=page===pages.length-1?(l.id<COURSE.length?'Следующий урок →':'К списку уроков'):'Далее →';document.querySelector('.reader-body').scrollTop=0;state.page=page;saveProgress();};
+ document.querySelector('#page-back').addEventListener('click',()=>{if(page>0){page--;showPage();}});
+ document.querySelector('#page-next').addEventListener('click',()=>{if(page<pages.length-1){page++;showPage();}else if(l.id<COURSE.length){location.hash='lesson-'+(l.id+1);}else document.querySelector('#lessons-dialog').showModal();});
+ const lessons=document.querySelector('#lessons-dialog');document.querySelector('#lessons-open').addEventListener('click',()=>lessons.showModal());document.querySelector('#lessons-close').addEventListener('click',()=>lessons.close());document.querySelectorAll('.lesson-choice').forEach(a=>a.addEventListener('click',()=>lessons.close()));
+ const help=document.querySelector('#help-dialog');let helpPages=[],helpIndex=0;
+ const showHelp=()=>{document.querySelector('#help-title').textContent=helpPages[helpIndex].title;document.querySelector('#help-body').innerHTML=helpPages[helpIndex].body;document.querySelector('#help-count').textContent=`${helpIndex+1} / ${helpPages.length}`;document.querySelector('#help-back').disabled=helpIndex===0;document.querySelector('#help-next').disabled=helpIndex===helpPages.length-1;help.scrollTop=0;};
+ const openHelp=p=>{helpPages=p;helpIndex=0;showHelp();help.showModal();};
+ document.querySelector('#help-close').addEventListener('click',()=>help.close());document.querySelector('#help-back').addEventListener('click',()=>{if(helpIndex>0){helpIndex--;showHelp();}});document.querySelector('#help-next').addEventListener('click',()=>{if(helpIndex<helpPages.length-1){helpIndex++;showHelp();}});
+ document.querySelectorAll('[data-help]').forEach(b=>b.addEventListener('click',()=>{const key=b.dataset.help;openHelp(key==='solution'?[...solutionPages,{title:'Другие варианты',body:para(l.compare)}]:[{title:b.textContent,body:para(key==='hint1'?l.hints[0]:key==='hint2'?l.hints[1]:l.partial)}]);}));
+ document.querySelector('#tools-open').addEventListener('click',()=>openHelp([...l.tools.map(t=>({title:t[0],body:para(t[1])})),{title:'Справка Autodesk',body:SOURCES.filter(s=>l.sources.includes(s.id)).map(s=>`<p><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title)}</a></p>`).join('')}]));
+ const showAnswer=(box,answer)=>{const q=l.quiz[Number(box.dataset.q)],correct=answer===q.answer;box.querySelectorAll('button').forEach(b=>{b.classList.remove('correct','wrong');b.setAttribute('aria-pressed',String(Number(b.dataset.answer)===answer));if(Number(b.dataset.answer)===answer)b.classList.add(correct?'correct':'wrong');});box.querySelector('.feedback').textContent=(correct?'Верно. ':'Пока нет. ')+q.explain;};
+ document.querySelectorAll('.quiz').forEach(box=>{const i=Number(box.dataset.q);if(Number.isInteger(state.answers[i]))showAnswer(box,state.answers[i]);box.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>{state.answers[i]=Number(b.dataset.answer);showAnswer(box,state.answers[i]);saveProgress();}));});
+ document.querySelectorAll('[data-check]').forEach(c=>c.addEventListener('change',()=>{state.checks[c.dataset.check]=c.checked;saveProgress();}));
+ document.querySelector('#notes').addEventListener('input',e=>{state.notes=e.target.value;saveProgress();});
+ document.querySelector('#complete').addEventListener('change',e=>{state.completed=e.target.checked;saveProgress();});
+ document.querySelector('#reset-quiz').addEventListener('click',()=>{state.answers={};document.querySelectorAll('.quiz button').forEach(b=>{b.classList.remove('correct','wrong');b.setAttribute('aria-pressed','false');});document.querySelectorAll('.feedback').forEach(f=>f.textContent='');saveProgress();});
+ showPage();
+}
+window.addEventListener('hashchange',render);render();
